@@ -1,0 +1,3 @@
+$ifndef WEB_ENVIRONMENT
+$define WEB_ENVIRONMENT  
+$endif  WEB_ENVIRONMENT
