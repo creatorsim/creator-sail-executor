@@ -8,24 +8,26 @@ MIN_EMCC_32_VERSION="3.1.5"
 MIN_EMCC_64_VERSION="4.0.3"
 MIN_EMAR_32_VERSION="13.0.1"
 MIN_EMAR_64_VERSION="21.0.0"
-ARCHITECTURE=""                 # Required
+ARCHITECTURE=""                    # Required
 TARGET=""                          # Required
+CACHE_PATH=""                      # Required
 GMP_EM_DIR=""                      # Optional
+IS_VECTOR_AVAILABLE=""             # Optional
 
 POSITIONAL=()
 
 usage() {
   cat <<'EOF'
 Uso:
-  sail_sim.sh RV64 web [GMP_EM_DIR]
-  sail_sim.sh --arch RV64 --target web [--gmp-dir /gmp/dir/path]
-  sail_sim.sh RV64 --target web [--gmp-dir /gmp/dir/path]
+  sail_sim.sh RV64 web ~/emscripten_cache [GMP_EM_DIR]
+  sail_sim.sh --arch RV64 --target web --cache /emcc/cache/path [--gmp-dir /gmp/dir/path]
+  sail_sim.sh RV64 --target web /emcc/cache/path [--gmp-dir /gmp/dir/path]
   sail_sim.sh --arch RV64 local [--gmp-dir /gmp/dir/path]
-
+  sail_sim.sh RV64 web --cache /emcc/cache/path [--gmp-dir /gmp/dir/path]
 Ejemplos:
-  ./sail_sim.sh RV64 web
-  ./sail_sim.sh RV64 web /opt/gmp
-  ./sail_sim.sh --arch RV64 --target web --gmp-dir /opt/gmp
+  ./sail_sim.sh RV64 web /emcc/cache 
+  ./sail_sim.sh RV64 web /emcc/cache /opt/gmp
+  ./sail_sim.sh --arch RV64 --target web --cache /emcc/cache/path --gmp-dir /opt/gmp
 EOF
 }
 
@@ -35,6 +37,10 @@ while [[ $# -gt 0 ]]; do
       ARCHITECTURE="${2:-}"; shift 2 ;;
     --target)
       TARGET="${2:-}"; shift 2 ;;
+    --cache)
+      CACHE_PATH="${2:-}"; shift 2 ;;
+    --vector)
+      IS_VECTOR_AVAILABLE="${2:-}"; shift 2 ;;
     --gmp-dir|--gmp|--gmp_path)
       GMP_EM_DIR="${2:-}"; shift 2 ;;
     -h|--help)
@@ -76,6 +82,12 @@ case "$TARGET" in
   web|local) ;;
   *) echo "Invalid target: $TARGET (use web o local)"; exit 1 ;;
 esac
+
+
+# case "$IS_VECTOR_AVAILABLE" in
+#   vector) ;;
+#   *) echo "Invalid target: $TARGET (use vector)"; exit 1 ;;
+# esac
 
 
 
@@ -227,9 +239,16 @@ EMCC_VERSION="$(get_emcc_version)"
 #check which arch are
 if [ "$ARCHITECTURE" == "RV32" ]; then
     echo "RISC-V 32 bits architecture selected"
-    if ! version_check "$EMCC_VERSION" "$MIN_EMCC_32_VERSION"; then
+    if [ "$IS_VECTOR_AVAILABLE" = "vector" ]; then 
+      if ! version_check "$EMCC_VERSION" "$MIN_EMCC_64_VERSION"; then
+        echo "emcc >= $MIN_EMCC_64_VERSION required (detected $EMCC_VERSION)"
+        exit 1
+      fi  
+    else 
+      if ! version_check "$EMCC_VERSION" "$MIN_EMCC_32_VERSION"; then
         echo "emcc >= $MIN_EMCC_32_VERSION required (detected $EMCC_VERSION)"
         exit 1
+      fi
     fi
 elif [ "$ARCHITECTURE" == "RV64" ]; then
     echo "RISC-V 32 bits architecture selected"
@@ -265,7 +284,6 @@ if [ "$EMAR_OK" = false ]; then
   exit 1
 fi
 
-echo "hola"
 
 EMAR_VERSION="$(get_emar_version)"
 
@@ -278,9 +296,16 @@ if [ "$ARCHITECTURE" = "RV64" ]; then
     fi
 elif [ "$ARCHITECTURE" = "RV32" ]; then
     echo "RISC-V 32 bits architecture selected"
-    if ! version_check "$EMAR_VERSION" "$MIN_EMAR_32_VERSION"; then
+    if [ "$IS_VECTOR_AVAILABLE" = "vector" ]; then 
+      if ! version_check "$EMAR_VERSION" "$MIN_EMAR_64_VERSION"; then
+        echo "emcc >= $MIN_EMAR_64_VERSION required (detected $EMAR_VERSION)"
+        exit 1
+      fi  
+    else 
+      if ! version_check "$EMAR_VERSION" "$MIN_EMAR_32_VERSION"; then
         echo "emar >= $MIN_EMAR_32_VERSION required (detected $EMAR_VERSION)"
         exit 1
+      fi
     fi
 else 
     echo "Error: None architecture version are selected or undefined architecture: $ARCHITECTURE"
@@ -296,25 +321,47 @@ fi
 echo "$ARCHITECTURE"
 echo "$TARGET"
 echo "$GMP_EM_DIR"
+echo "$IS_VECTOR_AVAILABLE"
+echo "$EMCC_VERSION"
+echo "$EMAR_VERSION"
 export GMP_EM_DIR
+
+if [ "$CACHE_PATH" != "" ]; then
+  export EM_CACHE=$CACHE_PATH
+fi
 
 if [[ "$ARCHITECTURE" = "RV64" && "$TARGET" = "web" ]]; then
   echo "Compile RISC-V 64 bits architecture on web environment"
   make clean
   make LOCAL=0 ARCHS=64 c_emulator/riscv_sim_RV64
+  prettier -w c_emulator/riscv_sim_RV64.js
+  # mv c_emulator/riscv_sim_RV64.js binaries/
+  mv c_emulator/riscv_sim_RV64.wasm binaries/
 elif [[ "$ARCHITECTURE" = "RV64" && "$TARGET" = "local" ]]; then
   echo "Compile RISC-V 64 bits architecture on local environment"
   make clean
   make LOCAL=1 ARCHS=64 c_emulator/riscv_sim_RV64
-elif [[ "$ARCHITECTURE" = "RV32" && "$TARGET" = "local" ]]; then
-  echo "Compile RISC-V 32 bits architecture on local environment"
-  make clean
-  make LOCAL=1 ARCHS=32 c_emulator/riscv_sim_RV32
+  # prettier -w c_emulator/riscv_sim_RV64
 elif [[ "$ARCHITECTURE" = "RV32" && "$TARGET" = "web" ]]; then
   echo "Compile RISC-V 32 bits architecture on web environment"
   make clean
-  export EM_CACHE=~/emscripten_cache
-  make LOCAL=0 ARCHS=32 c_emulator/riscv_sim_RV32
+  if [ "$IS_VECTOR_AVAILABLE" = "vector" ]; then
+    make LOCAL=0 ARCHS=32 VECT=1 c_emulator/riscv_sim_RV32
+    mv ./c_emulator/riscv_sim_RV32.wasm binaries/riscv_sim_RV32vd.wasm
+  else 
+    make LOCAL=0 ARCHS=32 VECT=0 c_emulator/riscv_sim_RV32
+    mv ./c_emulator/riscv_sim_RV32.wasm binaries/riscv_sim_RV32.wasm
+  fi
+  # prettier -w c_emulator/riscv_sim_RV32.js
+  # mv ./c_emulator/riscv_sim_RV32.js binaries/
+elif [[ "$ARCHITECTURE" = "RV32" && "$TARGET" = "local" ]]; then
+  echo "Compile RISC-V 32 bits architecture on local environment"
+  make clean
+  if [ "$IS_VECTOR_AVAILABLE" = "vector" ]; then
+    make LOCAL=1 ARCHS=32 VECT=1 c_emulator/riscv_sim_RV32
+  else 
+    make LOCAL=1 ARCHS=32 VECT=0 c_emulator/riscv_sim_RV32
+  fi
 else
   echo "Nothing to compile"
 fi

@@ -320,19 +320,15 @@ ifeq ($(LOCAL),0)
 			-s EXPORTED_FUNCTIONS="['_free','_malloc','_reanudar_ejecucion','_main', "_send_int_to_C", "_send_float_to_C", "_send_double_to_C", "_send_char_to_C", "_send_string_to_C"]" \
 			-s EXPORTED_RUNTIME_METHODS="['FS','ccall','callMain','stringToUTF8','lengthBytesUTF8','run']" -O3 \
 			$(C_WARNINGS) $(C_FLAGS) $< $(C_SRCS) $(SAIL_LIB_DIR)/*.c $(C_LIBS) -o $@.js
-# 	emcc -sENVIRONMENT=web -s ASYNCIFY -s NO_EXIT_RUNTIME=1 \
-# 		-s DEFAULT_LIBRARY_FUNCS_TO_INCLUDE='["emscripten_run_script","emscripten_run_script_int","emscripten_cancel_main_loop","emscripten_sleep", "emscripten_force_exit"]' \
-# 		-s INITIAL_MEMORY=64MB -s ASSERTIONS=1 -s ALLOW_MEMORY_GROWTH=1 -sMEMORY64=1 \
-# 		-s EXPORTED_FUNCTIONS="['_free','_malloc','_reanudar_ejecucion','_main', "_send_int_to_C", "_send_float_to_C", "_send_double_to_C", "_send_char_to_C", "_send_string_to_C"]" \
-# 		-s EXPORTED_RUNTIME_METHODS="['ccall','callMain']" -O3 \
-# 		$(C_WARNINGS) $(C_FLAGS) $< $(C_SRCS) $(SAIL_LIB_DIR)/*.c $(C_LIBS) -o $@.js
 else 
 	$(CC) -g $(C_WARNINGS) $(C_FLAGS) $< $(C_SRCS) $(SAIL_LIB_DIR)/*.c $(C_LIBS) -o $@
 endif
 
 
 c_emulator/riscv_sim_RV32: generated_definitions/c/riscv_model_RV32.c $(C_INCS) $(C_SRCS) $(SOFTFLOAT_LIBS) Makefile
+
 ifeq ($(LOCAL),0)
+ifeq ($(VECT),0)
 	emcc -sENVIRONMENT=web -s ASYNCIFY -s EXIT_RUNTIME=0 -s NO_EXIT_RUNTIME=1 \
 		-s WASM_BIGINT=1 \
 		-s DEFAULT_LIBRARY_FUNCS_TO_INCLUDE='["emscripten_run_script","emscripten_run_script_int","emscripten_cancel_main_loop","emscripten_sleep","emscripten_force_exit"]' \
@@ -340,17 +336,17 @@ ifeq ($(LOCAL),0)
 		-s EXPORTED_FUNCTIONS='["_reanudar_ejecucion","_main","_send_int_to_C","_send_float_to_C","_send_double_to_C","_send_char_to_C","_send_string_to_C"]' \
 		-s EXPORTED_RUNTIME_METHODS="['FS','ccall','callMain','stringToUTF8','lengthBytesUTF8']" -O3 \
 		--cache $(EM_CACHE) $(C_WARNINGS) $(C_FLAGS) $< $(C_SRCS) $(SAIL_LIB_DIR)/*.c $(C_LIBS) -o $@.js
-# 	emcc -sENVIRONMENT=web -s ASYNCIFY -s EXIT_RUNTIME=0 -s NO_EXIT_RUNTIME=1 \
-		-s WASM_BIGINT=1 \
-		-s DEFAULT_LIBRARY_FUNCS_TO_INCLUDE='["emscripten_run_script","emscripten_run_script_int","emscripten_cancel_main_loop","emscripten_sleep","emscripten_force_exit"]' \
-		-s INITIAL_MEMORY=64MB -s ASSERTIONS=1 -s ALLOW_MEMORY_GROWTH=1 -sMEMORY64=0 \
-		-s EXPORTED_FUNCTIONS='["_reanudar_ejecucion","_main","_send_int_to_C","_send_float_to_C","_send_double_to_C","_send_char_to_C","_send_string_to_C"]' \
-		-s EXPORTED_RUNTIME_METHODS="['ccall','callMain']" -O3 \
-		--cache $(EM_CACHE) $(C_WARNINGS) $(C_FLAGS) $< $(C_SRCS) $(SAIL_LIB_DIR)/*.c $(C_LIBS) -o $@.js
+else
+	emcc -sENVIRONMENT=web -s ASYNCIFY -s NO_EXIT_RUNTIME=1 \
+			-s DEFAULT_LIBRARY_FUNCS_TO_INCLUDE='["emscripten_run_script","emscripten_run_script_int","emscripten_cancel_main_loop","emscripten_sleep", "emscripten_force_exit"]' \
+			-s INITIAL_MEMORY=64MB -s ASSERTIONS=1 -s ALLOW_MEMORY_GROWTH=1 -sMEMORY64=1 -s MODULARIZE=1 -s EXPORT_ES6=1 \
+			-s EXPORTED_FUNCTIONS="['_free','_malloc','_reanudar_ejecucion','_main', "_send_int_to_C", "_send_float_to_C", "_send_double_to_C", "_send_char_to_C", "_send_string_to_C"]" \
+			-s EXPORTED_RUNTIME_METHODS="['FS','ccall','callMain','stringToUTF8','lengthBytesUTF8','run']" -O3 \
+			$(C_WARNINGS) $(C_FLAGS) $< $(C_SRCS) $(SAIL_LIB_DIR)/*.c $(C_LIBS) -o $@.js
+endif
 else
 	$(CC) -g $(C_WARNINGS) $(C_FLAGS) $< $(C_SRCS) $(SAIL_LIB_DIR)/*.c $(C_LIBS) -o $@
 endif
-# 		echo "Trying to creato a Web simulator in LOCAL environment. Please use LOCAL=0 in make arguments.";
 
 
 #

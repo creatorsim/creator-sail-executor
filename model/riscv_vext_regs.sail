@@ -256,49 +256,6 @@ function get_num_elem(LMUL_pow, SEW) = {
   num_elem
 }
 
-// val prueba64 : unit -> bits(64)
-// function prueba64 () = {
-//   let resultado : bits(64) = 0x1234123412341234;
-//   slice(resultado, 0, 64)
-// }
-
-// val call_prueba64 : bits(64) -> bits(64)
-// function call_prueba64(elvec) = {
-//   let result = prueba64();
-//   result[63..32] @ elvec[31..0]
-// }
-
-// val initmain : unit -> bits(64)
-// function initmain() = {
-//   let aux = 0x4321432143214321;
-//   let resultado = call_prueba64(aux);
-//   print_reg("Parte alta initmain: " ^ BitStr(resultado[63..32]));
-//   print_reg("Parte baja initmain: " ^ BitStr(resultado[31..0]));
-//   print_reg("Completo   initmain: " ^ BitStr(resultado));
-//   resultado
-// }
-
-// $ifdef _RV32S
-
-// /* Reads a single vreg into multiple elements */
-// val read_single_vreg_f : forall 'n 'm, 'm == 64 & 'n >= 0. (int('n), int('m), regidx) -> vector('n, dec, bits(64))
-// function read_single_vreg_f(num_elem, SEW, vrid) = {
-//   let bv     : vregtype                  = V(vrid);
-//   // print_reg("read_single_vreg: " ^ BitStr(bv));
-//   var result : vector(8, dec, bits(64)) = undefined;
-
-//   assert(8 <= SEW & SEW <= 64);
-//   foreach (i from 0 to (num_elem - 1)) {
-//     let start_index = i * SEW;
-//       result[i] = slice(bv, start_index, SEW);
-//   };
-
-
-//   result
-// }
-
-// $endif _RV32S
-
 /* Reads a single vreg into multiple elements */
 val read_single_vreg : forall 'n 'm, 'n >= 0. (int('n), int('m), regidx) -> vector('n, dec, bits('m))
 function read_single_vreg(num_elem, SEW, vrid) = {
@@ -387,6 +344,55 @@ $endif
 
 
 
+$ifdef _RV32S
+
+/* The general vreg reading operation with num_elem as max(VLMAX,VLEN/SEW)) */
+val read_vreg : forall 'n 'm 'p, 'n >= 0. (int('n), int('m), int('p), regidx) -> vector('n, dec, bits('m))
+function read_vreg(num_elem, SEW, LMUL_pow, vrid) = {
+  var result : vector('n, dec, bits('m)) = undefined;
+  let VLEN = unsigned(vlenb) * 8;
+  let LMUL_pow_reg = if LMUL_pow < 0 then 0 else LMUL_pow;
+
+  /* Check for valid vrid */
+  if unsigned(vrid) + 2 ^ LMUL_pow_reg > 32 then {
+    /* vrid would read past largest vreg (v31) */
+    assert(false, "invalid register group: vrid overflow the largest number")
+  } else if unsigned(vrid) % (2 ^ LMUL_pow_reg) != 0 then {
+    /* vrid must be a multiple of emul */
+    assert(false, "invalid register group: vrid is not a multiple of EMUL")
+  } else {
+    if LMUL_pow < 0 then {
+      if ('n == 8 & 'm == 64 & sizeof(xlen) == 32) then {
+        result = read_single_vreg_f('n, SEW, vrid); // 32 bits vd sim 64 bits vector
+      } else {
+        result = read_single_vreg('n, SEW, vrid);
+      }
+    } else {
+      let 'num_elem_single : int = VLEN / SEW;
+      assert('num_elem_single >= 0);
+      foreach (i_lmul from 0 to (2 ^ LMUL_pow_reg - 1)) {
+        let r_start_i : int = i_lmul * 'num_elem_single;
+        let r_end_i   : int = r_start_i + 'num_elem_single - 1;
+        let vrid_lmul     : regidx = vrid + to_bits(5, i_lmul);
+        var single_result : vector('num_elem_single, dec, bits('m)) = undefined;
+        if ('num_elem_single == 8 & 'm == 64 & sizeof(xlen) == 32) then {
+          single_result = read_single_vreg_f('num_elem_single, SEW, vrid_lmul); //  32 bits vd sim 64 bits vector
+        } else {
+          single_result = read_single_vreg('num_elem_single, SEW, vrid_lmul);
+        };
+        foreach (r_i from r_start_i to r_end_i) {
+          let s_i : int = r_i - r_start_i;
+          assert(0 <= r_i & r_i < num_elem);
+          assert(0 <= s_i & s_i < 'num_elem_single);
+          result[r_i] = single_result[s_i];
+        }
+      }
+    }
+  };
+
+  result
+}
+$else
 
 
 /* The general vreg reading operation with num_elem as max(VLMAX,VLEN/SEW)) */
@@ -406,11 +412,7 @@ function read_vreg(num_elem, SEW, LMUL_pow, vrid) = {
   } else {
     if LMUL_pow < 0 then {
       if ('n == 8 & 'm == 64 & sizeof(xlen) == 32) then {
-        // $ifdef _RV32S
-        // result = read_single_vreg_f('n, SEW, vrid); // 32 bits vd sim 64 bits vector
-        // $else 
         result = read_single_vreg('n, SEW, vrid);
-        // $endif
       } else {
         result = read_single_vreg('n, SEW, vrid);
       }
@@ -423,7 +425,6 @@ function read_vreg(num_elem, SEW, LMUL_pow, vrid) = {
         let vrid_lmul     : regidx = vrid + to_bits(5, i_lmul);
         var single_result : vector('num_elem_single, dec, bits('m)) = undefined;
         if ('num_elem_single == 8 & 'm == 64 & sizeof(xlen) == 32) then {
-          // single_result = read_single_vreg_f('num_elem_single, SEW, vrid_lmul); //  32 bits vd sim 64 bits vector
           single_result = read_single_vreg('num_elem_single, SEW, vrid_lmul);
         } else {
           single_result = read_single_vreg('num_elem_single, SEW, vrid_lmul);
@@ -440,6 +441,8 @@ function read_vreg(num_elem, SEW, LMUL_pow, vrid) = {
 
   result
 }
+$endif
+
 
 $ifdef _RV32S
 

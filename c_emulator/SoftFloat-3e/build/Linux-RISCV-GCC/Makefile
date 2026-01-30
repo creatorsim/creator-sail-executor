@@ -53,7 +53,11 @@ ifeq ($(LOCAL), 0)
   ifeq ($(BITS), 64)
     COMPILE_C += $(SOFTFLOAT_OPTS) $(C_INCLUDES) -O2 -sMEMORY64=1 -o $@
   else
-    COMPILE_C += $(SOFTFLOAT_OPTS) $(C_INCLUDES) -O2 -o $@ #COMPILE_C += $(SOFTFLOAT_OPTS) $(C_INCLUDES) -O2 -sMEMORY64=1 -o $@ #
+    ifeq ($(VECT), 1)
+      COMPILE_C += $(SOFTFLOAT_OPTS) $(C_INCLUDES) -O2 -sMEMORY64=1 -o $@
+    else
+      COMPILE_C += $(SOFTFLOAT_OPTS) $(C_INCLUDES) -O2 -o $@
+    endif
   endif
 else
   COMPILE_C = cc -c -Werror-implicit-function-declaration 
