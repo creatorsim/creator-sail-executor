@@ -18,13 +18,13 @@ POSITIONAL=()
 
 usage() {
   cat <<'EOF'
-Uso:
+Use:
   sail_sim.sh RV64 web ~/emscripten_cache [GMP_EM_DIR]
   sail_sim.sh --arch RV64 --target web --cache /emcc/cache/path [--gmp-dir /gmp/dir/path]
   sail_sim.sh RV64 --target web /emcc/cache/path [--gmp-dir /gmp/dir/path]
   sail_sim.sh --arch RV64 local [--gmp-dir /gmp/dir/path]
   sail_sim.sh RV64 web --cache /emcc/cache/path [--gmp-dir /gmp/dir/path]
-Ejemplos:
+Examples:
   ./sail_sim.sh RV64 web /emcc/cache 
   ./sail_sim.sh RV64 web /emcc/cache /opt/gmp
   ./sail_sim.sh --arch RV64 --target web --cache /emcc/cache/path --gmp-dir /opt/gmp
