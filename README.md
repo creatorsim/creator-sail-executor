@@ -1,5 +1,5 @@
-# creator-sail-executor
-
+CREATOR-SAIL-EXECUTOR
+=============================
 This repo contains the implementation of the full specification with Sail for RISC-V (32-bit and 64-bit) for CREATOR simulator. And the user can make their own version of the simulator editing the implementation of the architecture and instruction set through the ".sail" files and generate a new version to apply into CREATOR to execute programs which contains this new or edited instructions.
 
 ## Requirements
