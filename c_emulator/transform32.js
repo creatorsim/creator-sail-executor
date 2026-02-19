@@ -130,13 +130,6 @@ export default function transformer(file, api) {
     makeNamedImport('@/core/capi/syscall.mts', ['SYSCALL']),
     makeNamedImport('@/core/events.mts', ['coreEvents']),
     makeNamedImport('@/web/utils.mjs', ['show_notification']),
-    makeNamedImport('@/web/utils.mjs', [
-      'reset_disable',
-      'instruction_disable',
-      'run_disable',
-      'stop_disable',
-      'isFinished',
-    ]),
     makeNamedImport('../../../core.mjs', ['architecture']),
     makeNamedImport('@/core/register/registerGlowState.mjs', [
       'clearAllRegisterGlows',
@@ -183,21 +176,89 @@ export default function transformer(file, api) {
     program.body.splice(lastImportIndex + 1, 0, makeExportedVar('userMode32', j.literal(false)));
   }
 
-  // var insn_number;
-  if (!root.find(j.VariableDeclaration).filter((p) =>
-    p.parent?.node?.type === 'Program' &&
-    p.node.declarations.some((d) => d.id.type === 'Identifier' && d.id.name === 'insn_number')
-  ).size()) {
-    // put it right after userMode32 export if possible
-    const exportIdx = program.body.findIndex(
-      (n) =>
-        n.type === 'ExportNamedDeclaration' &&
-        n.declaration?.type === 'VariableDeclaration' &&
-        n.declaration.declarations?.some((d) => d.id?.name === 'userMode32')
-    );
-    const insnDecl = j.variableDeclaration('var', [j.variableDeclarator(j.identifier('insn_number'), null)]);
-    program.body.splice((exportIdx >= 0 ? exportIdx + 1 : insertAt), 0, insnDecl);
+// ============================================================
+// var insn_number;  (INSIDE var Module = (() => { ... })(); IIFE)
+// ============================================================
+function getModuleIifeBody() {
+  // match: var Module = (() => { ... })();
+  const decl = root
+    .find(j.VariableDeclarator, { id: { type: "Identifier", name: "Module" } })
+    .filter((p) => {
+      const init = p.node.init;
+      return (
+        init?.type === "CallExpression" &&
+        init.callee?.type === "ArrowFunctionExpression" &&
+        init.callee.body?.type === "BlockStatement"
+      );
+    })
+    .paths()[0];
+
+  if (!decl) return null;
+  return decl.node.init.callee.body.body; // array of statements inside IIFE
+}
+
+function hasInsnNumberDecl(stmts) {
+  return stmts.some(
+    (st) =>
+      st.type === "VariableDeclaration" &&
+      st.declarations.some(
+        (d) => d.id.type === "Identifier" && d.id.name === "insn_number"
+      )
+  );
+}
+
+function removeInsnNumberOutsideModuleIife() {
+  const moduleBody = getModuleIifeBody();
+
+  root
+    .find(j.VariableDeclaration)
+    .filter((p) =>
+      p.node.declarations.some(
+        (d) => d.id.type === "Identifier" && d.id.name === "insn_number"
+      )
+    )
+    .forEach((p) => {
+      // Si está dentro del IIFE, no tocar
+      if (moduleBody && moduleBody.includes(p.node)) return;
+
+      // Si tiene más declarators, elimina solo insn_number
+      p.node.declarations = p.node.declarations.filter(
+        (d) => !(d.id.type === "Identifier" && d.id.name === "insn_number")
+      );
+
+      // Si se queda vacío, elimina la statement
+      if (p.node.declarations.length === 0) j(p).remove();
+    });
+}
+
+const moduleBody = getModuleIifeBody();
+if (moduleBody) {
+  // Limpia duplicados fuera (opcional pero recomendable)
+  removeInsnNumberOutsideModuleIife();
+
+  // Inserta dentro del IIFE si no existe ya
+  if (!hasInsnNumberDecl(moduleBody)) {
+    const insnDecl = j.variableDeclaration("var", [
+      j.variableDeclarator(j.identifier("insn_number"), null),
+    ]);
+
+    // Insertar justo después de: var _scriptDir = import.meta.url;
+    const scriptDirIdx = moduleBody.findIndex((st) => {
+      if (st.type !== "VariableDeclaration") return false;
+      return st.declarations.some((d) => {
+        return (
+          d.id?.type === "Identifier" &&
+          d.id.name === "_scriptDir" &&
+          d.init &&
+          j(d.init).toSource() === "import.meta.url"
+        );
+      });
+    });
+
+    moduleBody.splice(scriptDirIdx >= 0 ? scriptDirIdx + 1 : 0, 0, insnDecl);
   }
+}
+
 
   // ============================================================
   // 2) Insert init block inside: return function (Module) { ... }
@@ -261,9 +322,7 @@ var inside_function = false;
   // ============================================================
   // 3) Insert big parsing/regex block before `var out = ...`
   // ============================================================
-  const bigBlock = `
-
-    // const instructionExp = /\[(\d+)\] \[(\w+)\]: 0x([0-9A-Fa-f]+) \(0x([0-9A-Fa-f]+)\) (\w+) ([^,]+), ([^,]+)(?:, (.+))?/;
+  const bigBlock = String.raw
     var instructionExp = /\[(\d+)\] \[(\w+)\]: 0x([0-9A-Fa-f]+) \(0x([0-9A-Fa-f]+)\) ([\w.]+)(?: ([^,]+), ([^,]+)(?:, (.+))?)?/;
     var registerExp = /([xf]\d+) (<-) 0x([0-9A-Fa-f]+)/; // /(x\d+) (<-|->) 0x([0-9A-Fa-f]+)/;
     var vectorExp = /(v\d+) (<-) 0x([0-9A-Fa-f]+)/;
@@ -1098,7 +1157,7 @@ var inside_function = false;
       // else
       console.warn(message);
     }
-`;
+  ;
   const bigStatements = j(bigBlock).get().node.program.body;
 
   // locate the same `return function(Module){...}` and insert before var out
@@ -1235,17 +1294,21 @@ args.shift();
           }
           status.run_program = -1; // program finished
           if (statusw !== 0){
-            reset_disable.value = false;
-            instruction_disable.value = true;
-            run_disable.value = true;
-            stop_disable.value = false;
+            coreEvents.emit("executor-buttons-update", {
+              reset_disable: false,
+              instruction_disable: true,
+              run_disable: true,
+              stop_disable: false,
+            });
             show_notification("Your program has finished with errors.", "danger");
           } else {
-            reset_disable.value = false;
-            instruction_disable.value = false;
-            run_disable.value = false;
-            stop_disable.value = true;
-            isFinished.value = true;
+            coreEvents.emit("executor-buttons-update", {
+              reset_disable: false,
+              instruction_disable: false,
+              run_disable: false,
+              stop_disable: true,
+              isFinished: true,
+            });
           }`;
   const exitUiStatements = j(exitUiBlock).get().node.program.body;
 
