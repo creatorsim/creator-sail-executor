@@ -1,15 +1,13 @@
-import { instructions, tag_instructions } from "@/core/assembler/assembler.mjs";
+import { setInstructions, clear_instructions, instructions, tag_instructions } from "@/core/assembler/assembler.mjs";
 import { readRegister, writeRegister, notifyRegisterUpdate } from "@/core/register/registerOperations.mjs";
 import { crex_findReg_bytag, crex_findReg } from "@/core/register/registerLookup.mjs"
 import { status, set_execution_mode, PC_REG_INDEX, REGISTERS, getPC, main_memory, config_cache, L1_cache_memory, L1_I_cache_memory, L1_D_cache_memory, L2_D_cache_memory, L2_I_cache_memory, L2_cache_memory, updateCacheMem } from "@/core/core.mjs";
-import { setInstructions } from "@/core/assembler/assembler.mjs";
 import { display_print } from "../../IO.mjs";
 import { SYSCALL } from "@/core/capi/syscall.mts";
 import { coreEvents } from "@/core/events.mts";
-import { show_notification } from "@/web/utils.mjs";
+import { show_notification } from "@/core/utils/notifications.mts";
 import { architecture } from "../../../core.mjs";
 import { clearAllRegisterGlows } from "@/core/register/registerGlowState.mjs";
-
 
 export var userMode32 = false;
 
@@ -18,7 +16,7 @@ var Module = (() => {
   var insn_number;
 
   return function (Module) {
-    document.app.$data.is_breakpoint = instructions[0].Break;
+    document.app.$data.is_breakpoint = (instructions.length !== 0) ? instructions[0].Break : false;
     var pc_sail = crex_findReg_bytag("program_counter");
     var pc_min = architecture.memory_layout.text.start;
     var pc_max = architecture.memory_layout.text.end;
@@ -906,7 +904,9 @@ var Module = (() => {
           // inside_function = true;
         }
         if (instructions[current_ins].loaded.includes("jal") && !instructions[current_ins].loaded.includes("jalr")){
-          var next_add = instructions[current_ins].loaded.split("\t");
+          var next_add = instructions[current_ins].loaded.match(/\b[0-9a-fA-F]+\b/)[0]; //.split("\t");
+          next_add_to_jump = instructions.findIndex(insn => insn.Address === ("0x"+next_add.toLowerCase()));
+          prev_add_to_jump = current_ins;
 
         }
         if (instructions[current_ins].loaded.includes("ret") && !instructions[current_ins].loaded.includes("mret")){
@@ -1060,6 +1060,7 @@ var Module = (() => {
 
 
         instoper = instMatch[5];
+        coreEvents.emit("sail-instruction-update");
         setInstructions(instructions);
         // window.updateUI({ error: false, msg: "" });
 
@@ -1183,7 +1184,9 @@ var Module = (() => {
       }
 
       console.log(message);
+      // clear_instructions();
 
+      setInstructions(instructions);
     }
 
     Module['printErr'] = function (message) {
@@ -1193,8 +1196,7 @@ var Module = (() => {
       console.warn(message);
     }
 
-    var out = Module["print"] /*|| console.log.bind(console)*/;
-    // var out = console.log.bind(console);
+    var out = (document.app.$data.testing === true ) ? console.log.bind(console) : Module["print"];
     var err = Module["printErr"] /*|| console.warn.bind(console)*/;
 
     Object.assign(Module, moduleOverrides);
@@ -7823,27 +7825,33 @@ var Module = (() => {
       }
       if (keepRuntimeAlive()) {
         if (!implicit) {
-
-          for (let i = 0; i < instructions.length; i++){
-            instructions[i]._rowVariant = '';
-          }
-          status.run_program = -1; // program finished
-          if (statusw !== 0){
-            coreEvents.emit("executor-buttons-update", {
-              reset_disable: false,
-              instruction_disable: true,
-              run_disable: true,
-              stop_disable: false,
-            });
-            show_notification("Your program has finished with errors.", "danger");
+          if (!document.app.$data.testing) {
+            for (let i = 0; i < instructions.length; i++){
+              instructions[i]._rowVariant = '';
+            }
+            status.run_program = -1; // program finished
+            if (statusw !== 0){
+              coreEvents.emit("executor-buttons-update", {
+                reset_disable: false,
+                instruction_disable: true,
+                run_disable: true,
+                stop_disable: false,
+              });
+              show_notification("Your program has finished with errors.", "danger");
+            } else {
+              coreEvents.emit("executor-buttons-update", {
+                reset_disable: false,
+                instruction_disable: false,
+                run_disable: false,
+                stop_disable: true,
+                isFinished: true,
+              });
+            }
           } else {
-            coreEvents.emit("executor-buttons-update", {
-              reset_disable: false,
-              instruction_disable: false,
-              run_disable: false,
-              stop_disable: true,
-              isFinished: true,
-            });
+            if (statusw === 0)
+              document.app.$data.passed_test += 1;
+            else 
+              document.app.$data.failed_test += 1;
           }
           var msg =
             "program exited (with status: " +
